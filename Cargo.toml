@@ -4,5 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+chrono = "0.4.41"
 iced = { version = "0.13.1", features = ["tokio", "canvas"] }
+reqwest = { version = "0.12.15", features = ["json", "rustls-tls"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+thiserror = "2.0.12"
 tokio = { version = "1.44.2", features = ["rt-multi-thread", "macros"] }
