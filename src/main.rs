@@ -1,10 +1,10 @@
-use std::time::Duration;
+use std::{fmt::Display, time::Duration};
 
 use futures::future;
 use iced::{
     Color, Element, Subscription, Task, Theme, application,
     time::every,
-    widget::{Column, text},
+    widget::{Row, column, scrollable, text},
 };
 use thiserror::Error;
 
@@ -15,6 +15,7 @@ fn main() -> iced::Result {
         .run_with(Krader::new)
 }
 
+#[derive(Debug)]
 struct WatchItem {
     symbol: String,
     price: Option<f64>,
@@ -71,54 +72,59 @@ impl Krader {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::FetchPrice => Task::perform(fetch_btc_price(), Message::PricesFetched),
-            Message::PriceFetched(Ok(price)) => {
-                self.btc_price = Some(price);
-                self.last_update = Some(chrono::Utc::now().to_rfc3339());
+            Message::FetchPrices => Task::perform(fetch_btc_price(), Message::PricesFetched),
+            Message::PricesFetched(Ok(prices)) => {
+                self.watch_list = prices
+                    .iter()
+                    .map(|watch_item| WatchItem {
+                        symbol: watch_item.0.clone(),
+                        price: Some(watch_item.1),
+                        last_update: Some(chrono::Utc::now().to_rfc3339()),
+                        error: None,
+                    })
+                    .collect();
                 Task::none()
             }
 
-            Message::PriceFetched(Err(err)) => {
-                // Handle the error: e.g. store it or log it
-                self.last_error = Some(err.to_string());
+            Message::PricesFetched(Err(err)) => {
+                // In case of a global error, store it in each WatchItem
+                for item in &mut self.watch_list {
+                    item.error = Some(err.to_string());
+                }
                 Task::none()
             }
         }
     }
 
     fn view(&self) -> Element<Message> {
-        let price_text = if let Some(p) = self.btc_price {
-            format!("BTC/USD: ${:.2}", p)
-        } else {
-            "Fetching price..".into()
-        };
+        let tokens_column = column(self.watch_list.iter().map(|item| {
+            Row::new()
+                .spacing(20)
+                .push(text(&item.symbol).size(24))
+                .push(
+                    text(
+                        item.price
+                            .map(|p| format!("{:.2}", p))
+                            .unwrap_or_else(|| "-".into()),
+                    )
+                    .size(24),
+                )
+                .push(text(item.last_update.clone().unwrap_or_else(|| "--".into())).size(16))
+                .push(
+                    text(item.error.clone().unwrap_or_default())
+                        .color(Color::from_rgb(1.0, 0.0, 0.0))
+                        .size(16),
+                )
+                .into()
+        }))
+        .spacing(10);
 
-        let update_text = if let Some(ts) = &self.last_update {
-            format!("Last update: {}", ts)
-        } else {
-            "".into()
-        };
-
-        let error_text = if let Some(e) = &self.last_error {
-            format!("Error: {}", e)
-        } else {
-            "".into()
-        };
-
-        Column::new()
-            .push(text(price_text).size(40))
-            .push(text(update_text).size(16))
-            .push(
-                text(error_text)
-                    .color(Color::from_rgb(1.0, 0.0, 0.0))
-                    .size(16),
-            )
-            .into()
+        scrollable(tokens_column).into()
     }
 
     fn subscription(&self) -> Subscription<Message> {
         // Send Message::FetchPrice every 5 seconds
-        every(Duration::from_secs(5)).map(|_| Message::FetchPrice)
+        every(Duration::from_secs(5)).map(|_| Message::FetchPrices)
     }
 
     fn theme(&self) -> Theme {
@@ -127,7 +133,7 @@ impl Krader {
 }
 
 async fn fetch_btc_price() -> Result<Vec<(String, f64)>, FetchError> {
-    let symbols = vec!["XBTUSD", "ETHUSD", "DOTUSD"];
+    let symbols = vec!["XXBTZUSD", "XETHZUSD", "DOTUSD"];
     let mut tasks = Vec::new();
     for &s in &symbols {
         let url = format!("https://api.kraken.com/0/public/Ticker?pair={}", s);
