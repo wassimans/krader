@@ -31,7 +31,6 @@
 ### Prerequisites
 - **Rust** (1.70+)
 - **cargo** + **cargo-make** (optional)
-- **KRAKEN_API_KEY**: Your API key, you need to edit the .env file and add it there to fetch real data.
 
 ### Installation & Run
 
