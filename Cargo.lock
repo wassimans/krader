@@ -2046,6 +2046,7 @@ name = "krader"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "futures",
  "iced",
  "reqwest",
  "serde",

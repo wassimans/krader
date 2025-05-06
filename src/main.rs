@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use futures::future;
 use iced::{
     Color, Element, Subscription, Task, Theme, application,
     time::every,
@@ -14,16 +15,21 @@ fn main() -> iced::Result {
         .run_with(Krader::new)
 }
 
-pub struct Krader {
-    btc_price: Option<f64>,
+struct WatchItem {
+    symbol: String,
+    price: Option<f64>,
     last_update: Option<String>,
-    last_error: Option<String>,
+    error: Option<String>,
+}
+
+pub struct Krader {
+    watch_list: Vec<WatchItem>,
 }
 
 #[derive(Debug)]
 enum Message {
-    FetchPrice,
-    PriceFetched(Result<f64, FetchError>),
+    FetchPrices,
+    PricesFetched(Result<Vec<(String, f64)>, FetchError>),
 }
 
 #[derive(Debug, Error)]
@@ -43,13 +49,19 @@ pub enum FetchError {
 
 impl Krader {
     fn new() -> (Self, Task<Message>) {
-        (
-            Krader {
-                btc_price: None,
+        let symbols = vec!["XBTUSD", "ETHUSD", "DOTUSD"];
+        let watch_list = symbols
+            .iter()
+            .map(|sym| WatchItem {
+                symbol: sym.to_string(),
+                price: None,
                 last_update: None,
-                last_error: None,
-            },
-            Task::perform(fetch_btc_price(), Message::PriceFetched),
+                error: None,
+            })
+            .collect();
+        (
+            Krader { watch_list },
+            Task::perform(fetch_btc_price(), Message::PricesFetched),
         )
     }
 
@@ -59,7 +71,7 @@ impl Krader {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::FetchPrice => Task::perform(fetch_btc_price(), Message::PriceFetched),
+            Message::FetchPrice => Task::perform(fetch_btc_price(), Message::PricesFetched),
             Message::PriceFetched(Ok(price)) => {
                 self.btc_price = Some(price);
                 self.last_update = Some(chrono::Utc::now().to_rfc3339());
@@ -114,14 +126,30 @@ impl Krader {
     }
 }
 
-async fn fetch_btc_price() -> Result<f64, FetchError> {
-    let url = "https://api.kraken.com/0/public/Ticker?pair=XBTUSD";
-    let resp: serde_json::Value = reqwest::get(url).await?.json().await?;
+async fn fetch_btc_price() -> Result<Vec<(String, f64)>, FetchError> {
+    let symbols = vec!["XBTUSD", "ETHUSD", "DOTUSD"];
+    let mut tasks = Vec::new();
+    for &s in &symbols {
+        let url = format!("https://api.kraken.com/0/public/Ticker?pair={}", s);
+        tasks.push(async move {
+            let resp: serde_json::Value = reqwest::get(url).await?.json().await?;
+            let price_str = resp["result"][s]["c"][0]
+                .as_str()
+                .ok_or(FetchError::MissingField)?;
 
-    let price_str = resp["result"]["XXBTZUSD"]["c"][0]
-        .as_str()
-        .ok_or(FetchError::MissingField)?;
+            let price = price_str.parse::<f64>()?;
+            Ok((s.into(), price))
+        });
+    }
 
-    let price = price_str.parse::<f64>()?;
-    Ok(price)
+    // Run all fetch tasks concurrently
+    let results: Vec<Result<(String, f64), FetchError>> = future::join_all(tasks).await;
+
+    // Partition successes and errors
+    let mut prices = Vec::new();
+    for res in results {
+        prices.push(res?);
+    }
+
+    Ok(prices)
 }
