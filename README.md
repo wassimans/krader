@@ -60,11 +60,11 @@ krader/
 
 ## 📅 Experimental Roadmap
 
-1. **Phase 1**: Live Ticker panel: Building
-2. **Phase 2**: Order Book viewer: Todo
-3. **Phase 3**: Chart Trading with draggable markers: Todo
-4. **Phase 4**: Stitch panels into one window + theming: Todo
-5. **Phase 5**: Package builds for macOS/Win/Linux: Todo
+1. **Phase 1**: Live Ticker panel: ✅  Done
+2. **Phase 2**: Order Book viewer: 🏗️ Building
+3. **Phase 3**: Chart Trading with draggable markers: 🕘 Todo
+4. **Phase 4**: Stitch panels into one window + theming: 🕘 Todo
+5. **Phase 5**: Package builds for macOS/Win/Linux: 🕘 Todo
 
 ---
 
