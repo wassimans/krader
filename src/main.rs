@@ -4,7 +4,7 @@ use futures::future;
 use iced::{
     Color, Element, Subscription, Task, Theme, application,
     time::every,
-    widget::{Row, column, scrollable, text},
+    widget::{Column, Row, column, container, scrollable, text},
 };
 use thiserror::Error;
 
@@ -13,6 +13,14 @@ fn main() -> iced::Result {
         .subscription(Krader::subscription)
         .theme(Krader::theme)
         .run_with(Krader::new)
+}
+
+#[derive(Debug)]
+struct OrderBook {
+    pair: String,
+    bids: Vec<(f64, f64)>, // (price, size)
+    asks: Vec<(f64, f64)>,
+    last_error: Option<String>,
 }
 
 #[derive(Debug)]
@@ -25,12 +33,15 @@ struct WatchItem {
 
 pub struct Krader {
     watch_list: Vec<WatchItem>,
+    order_book: OrderBook,
 }
 
 #[derive(Debug)]
 enum Message {
     FetchPrices,
     PricesFetched(Result<Vec<(String, f64)>, FetchError>),
+    FetchOrderBook,
+    OrderBookFetched(Result<OrderBook, FetchError>),
 }
 
 #[derive(Debug, Error)]
@@ -60,9 +71,18 @@ impl Krader {
                 error: None,
             })
             .collect();
+        let order_book = OrderBook {
+            pair: "XBTUSD".into(),
+            bids: vec![],
+            asks: vec![],
+            last_error: None,
+        };
         (
-            Krader { watch_list },
-            Task::perform(fetch_btc_price(), Message::PricesFetched),
+            Krader {
+                watch_list,
+                order_book,
+            },
+            Task::perform(fetch_all_price(), Message::PricesFetched),
         )
     }
 
@@ -72,7 +92,7 @@ impl Krader {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::FetchPrices => Task::perform(fetch_btc_price(), Message::PricesFetched),
+            Message::FetchPrices => Task::perform(fetch_all_price(), Message::PricesFetched),
             Message::PricesFetched(Ok(prices)) => {
                 self.watch_list = prices
                     .iter()
@@ -93,38 +113,118 @@ impl Krader {
                 }
                 Task::none()
             }
+            Message::FetchOrderBook => {
+                let pair = self.order_book.pair.clone();
+                Task::perform(fetch_order_book(pair), Message::OrderBookFetched)
+            }
+
+            Message::OrderBookFetched(Ok(book)) => {
+                self.order_book = book;
+                Task::none()
+            }
+            Message::OrderBookFetched(Err(err)) => {
+                self.order_book.last_error = Some(err.to_string());
+                Task::none()
+            }
         }
     }
 
     fn view(&self) -> Element<Message> {
-        let tokens_column = column(self.watch_list.iter().map(|item| {
+        // Heatmap column
+        let mut heatmap = Column::new().spacing(2);
+        let max_size = self
+            .order_book
+            .bids
+            .iter()
+            .chain(self.order_book.asks.iter())
+            .map(|(_, size)| *size)
+            .fold(0.0, f64::max);
+
+        for (price, size) in &self.order_book.bids {
+            let width = (size / max_size * 200.0).max(5.0);
+            heatmap = heatmap.push(
+                container(text(format!("{:.2}", price)))
+                    .width(width)
+                    .style(HeatmapBar::Bid),
+            );
+        }
+
+        for (price, size) in &self.order_book.asks {
+            let width = (size / max_size * 200.0).max(5.0);
+            heatmap = heatmap.push(
+                container(text(format!("{:.2}", price)))
+                    .width(width)
+                    .style(HeatmapBar::Ask),
+            );
+        }
+
+        // Right: numeric table
+        let mut table = Column::new().spacing(2);
+        table = table.push(
             Row::new()
                 .spacing(20)
-                .push(text(&item.symbol).size(24))
-                .push(
-                    text(
-                        item.price
-                            .map(|p| format!("{:.2}", p))
-                            .unwrap_or_else(|| "-".into()),
-                    )
-                    .size(24),
-                )
-                .push(text(item.last_update.clone().unwrap_or_else(|| "--".into())).size(16))
-                .push(
-                    text(item.error.clone().unwrap_or_default())
-                        .color(Color::from_rgb(1.0, 0.0, 0.0))
-                        .size(16),
-                )
-                .into()
-        }))
-        .spacing(10);
+                .push(text("Price"))
+                .push(text("Size"))
+                .push(text("Total")),
+        );
+        for (price, size) in &self.order_book.bids {
+            let total = price * size;
+            table = table.push(
+                Row::new()
+                    .spacing(20)
+                    .push(text(format!("{:.2}", price)).size(16))
+                    .push(text(format!("{:.4}", size)).size(16))
+                    .push(text(format!("{:.2}", total)).size(16)),
+            );
+        }
+        for (price, size) in &self.order_book.asks {
+            let total = price * size;
+            table = table.push(
+                Row::new()
+                    .spacing(20)
+                    .push(text(format!("{:.2}", price)).size(16))
+                    .push(text(format!("{:.4}", size)).size(16))
+                    .push(text(format!("{:.2}", total)).size(16)),
+            );
+        }
 
-        scrollable(tokens_column).into()
+        // Assemble side by side
+        Row::new()
+            .spacing(40)
+            .push(heatmap)
+            .push(container(table).width(Length::Fill))
+            .into()
+
+        // let tokens_column = column(self.watch_list.iter().map(|item| {
+        //     Row::new()
+        //         .spacing(20)
+        //         .push(text(&item.symbol).size(24))
+        //         .push(
+        //             text(
+        //                 item.price
+        //                     .map(|p| format!("{:.2}", p))
+        //                     .unwrap_or_else(|| "-".into()),
+        //             )
+        //             .size(24),
+        //         )
+        //         .push(text(item.last_update.clone().unwrap_or_else(|| "--".into())).size(16))
+        //         .push(
+        //             text(item.error.clone().unwrap_or_default())
+        //                 .color(Color::from_rgb(1.0, 0.0, 0.0))
+        //                 .size(16),
+        //         )
+        //         .into()
+        // }))
+        // .spacing(10);
+
+        // scrollable(tokens_column).into()
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        // Send Message::FetchPrice every 5 seconds
-        every(Duration::from_secs(5)).map(|_| Message::FetchPrices)
+        let prices = every(Duration::from_secs(5)).map(|_| Message::FetchPrices);
+        let book = every(Duration::from_secs(5)).map(|_| Message::FetchOrderBook);
+
+        Subscription::batch(vec![prices, book])
     }
 
     fn theme(&self) -> Theme {
@@ -132,7 +232,7 @@ impl Krader {
     }
 }
 
-async fn fetch_btc_price() -> Result<Vec<(String, f64)>, FetchError> {
+async fn fetch_all_price() -> Result<Vec<(String, f64)>, FetchError> {
     let symbols = vec!["XXBTZUSD", "XETHZUSD", "DOTUSD"];
     let mut tasks = Vec::new();
     for &s in &symbols {
@@ -158,4 +258,38 @@ async fn fetch_btc_price() -> Result<Vec<(String, f64)>, FetchError> {
     }
 
     Ok(prices)
+}
+
+async fn fetch_order_book(pair: String) -> Result<OrderBook, FetchError> {
+    let url = format!(
+        "https://api.kraken.com/0/public/Depth?pair={}&count=10",
+        pair
+    );
+
+    let resp: serde_json::Value = reqwest::get(&url).await?.json().await?;
+    let data = &resp["result"][&pair];
+
+    // Parse bids and asks arrays
+    let parse_side = |side: &serde_json::Value| {
+        side.as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .filter_map(|entry| {
+                let arr = entry.as_array()?;
+                let price = arr.get(0)?.as_str()?.parse::<f64>().ok()?;
+                let size = arr.get(1)?.as_str()?.parse::<f64>().ok()?;
+                Some((price, size))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let bids = parse_side(&data["bids"]);
+    let asks = parse_side(&data["asks"]);
+
+    Ok(OrderBook {
+        pair,
+        bids,
+        asks,
+        last_error: None,
+    })
 }

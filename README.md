@@ -70,7 +70,7 @@ krader/
 
 ## 🤝 Contributing & Learning
 
-- This repo is for learning purposes.
+- This repository is for learning purposes.
 - Copy code, break it, fix it, learn by doing.
 
 
