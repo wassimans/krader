@@ -1,10 +1,8 @@
-use std::{fmt::Display, time::Duration};
+use std::time::Duration;
 
 use futures::future;
 use iced::{
-    Color, Element, Subscription, Task, Theme, application,
-    time::every,
-    widget::{Column, Row, column, container, scrollable, text},
+    application, time::every, widget::{column, row, scrollable, text, Column, Row}, Color, Element, Length, Subscription, Task, Theme
 };
 use thiserror::Error;
 
@@ -61,7 +59,7 @@ pub enum FetchError {
 
 impl Krader {
     fn new() -> (Self, Task<Message>) {
-        let symbols = vec!["XBTUSD", "ETHUSD", "DOTUSD"];
+        let symbols = ["XBTUSD", "ETHUSD", "DOTUSD"];
         let watch_list = symbols
             .iter()
             .map(|sym| WatchItem {
@@ -130,94 +128,85 @@ impl Krader {
     }
 
     fn view(&self) -> Element<Message> {
-        // Heatmap column
-        let mut heatmap = Column::new().spacing(2);
-        let max_size = self
-            .order_book
-            .bids
-            .iter()
-            .chain(self.order_book.asks.iter())
-            .map(|(_, size)| *size)
-            .fold(0.0, f64::max);
-
-        for (price, size) in &self.order_book.bids {
-            let width = (size / max_size * 200.0).max(5.0);
-            heatmap = heatmap.push(
-                container(text(format!("{:.2}", price)))
-                    .width(width)
-                    .style(HeatmapBar::Bid),
-            );
-        }
-
-        for (price, size) in &self.order_book.asks {
-            let width = (size / max_size * 200.0).max(5.0);
-            heatmap = heatmap.push(
-                container(text(format!("{:.2}", price)))
-                    .width(width)
-                    .style(HeatmapBar::Ask),
-            );
-        }
+        // Left pane: watchlist
+        let rows = self.watch_list.iter().map(|item| {
+            row![
+                text(&item.symbol).size(24),
+                text(item.price.unwrap_or(0.0).to_string()).size(24),
+                text(item.last_update.clone().unwrap_or_default()).size(16)
+            ]
+            .spacing(20)
+            .into()
+        });
+        let watchlist_pane: scrollable::Scrollable<'_, Message> =
+            scrollable(column(rows).spacing(10)).width(Length::FillPortion(1));
 
         // Right: numeric table
-        let mut table = Column::new().spacing(2);
-        table = table.push(
-            Row::new()
-                .spacing(20)
-                .push(text("Price"))
-                .push(text("Size"))
-                .push(text("Total")),
-        );
-        for (price, size) in &self.order_book.bids {
-            let total = price * size;
-            table = table.push(
-                Row::new()
-                    .spacing(20)
-                    .push(text(format!("{:.2}", price)).size(16))
-                    .push(text(format!("{:.4}", size)).size(16))
-                    .push(text(format!("{:.2}", total)).size(16)),
-            );
-        }
-        for (price, size) in &self.order_book.asks {
-            let total = price * size;
-            table = table.push(
-                Row::new()
-                    .spacing(20)
-                    .push(text(format!("{:.2}", price)).size(16))
-                    .push(text(format!("{:.4}", size)).size(16))
-                    .push(text(format!("{:.2}", total)).size(16)),
-            );
-        }
+        let rows = std::iter::once(
+            row![
+                text("Price").size(18),
+                text("Size").size(18),
+                text("Total").size(18),
+            ]
+            .spacing(20)
+            .into(), // ← convert Row → Element
+        )
+        .chain(self.order_book.bids.iter().map(|(price, size)| {
+            row![
+                text(format!("{:.2}", price)).size(16),
+                text(format!("{:.4}", size)).size(16),
+                text(format!("{:.2}", price * size)).size(16),
+            ]
+            .spacing(20)
+            .into() // ← must call .into() here as well
+        }))
+        .chain(self.order_book.asks.iter().map(|(price, size)| {
+            row![
+                text(format!("{:.2}", price)).size(16),
+                text(format!("{:.4}", size)).size(16),
+                text(format!("{:.2}", price * size)).size(16),
+            ]
+            .spacing(20)
+            .into() // ← and here
+        }));
 
-        // Assemble side by side
-        Row::new()
-            .spacing(40)
-            .push(heatmap)
-            .push(container(table).width(Length::Fill))
+        let order_book_pane = scrollable(
+            column(rows) // now rows is IntoIterator<Item = Element<_,_,_>>
+                .spacing(2),
+        )
+        .width(Length::FillPortion(1));
+
+        // Menu bar
+        let menu_bar = Row::new()
+            .height(30)
+            .padding(10)
+            .spacing(20)
+            .push(text("File").size(14).color(Color::from_rgb(0.0, 1.0, 0.0)))
+            .push(text("View").size(14).color(Color::from_rgb(0.0, 1.0, 0.0)))
+            .push(text("Help").size(14).color(Color::from_rgb(0.0, 1.0, 0.0)));
+
+        // Footer
+        let footer = Row::new()
+            .height(24)
+            .padding(5)
+            .push(text("Last sync: 12:34:56").size(14))
+            .push(
+                text(" | Connected")
+                    .size(14)
+                    .color(Color::from_rgb(0.0, 1.0, 0.0)),
+            );
+
+        Column::new()
+            .push(menu_bar)
+            .push(
+                // Compose them side-by-side
+                Row::new()
+                    .spacing(30)
+                    .push(watchlist_pane)
+                    .push(order_book_pane)
+            )
+            .push(footer)
             .into()
-
-        // let tokens_column = column(self.watch_list.iter().map(|item| {
-        //     Row::new()
-        //         .spacing(20)
-        //         .push(text(&item.symbol).size(24))
-        //         .push(
-        //             text(
-        //                 item.price
-        //                     .map(|p| format!("{:.2}", p))
-        //                     .unwrap_or_else(|| "-".into()),
-        //             )
-        //             .size(24),
-        //         )
-        //         .push(text(item.last_update.clone().unwrap_or_else(|| "--".into())).size(16))
-        //         .push(
-        //             text(item.error.clone().unwrap_or_default())
-        //                 .color(Color::from_rgb(1.0, 0.0, 0.0))
-        //                 .size(16),
-        //         )
-        //         .into()
-        // }))
-        // .spacing(10);
-
-        // scrollable(tokens_column).into()
     }
 
     fn subscription(&self) -> Subscription<Message> {
@@ -276,7 +265,7 @@ async fn fetch_order_book(pair: String) -> Result<OrderBook, FetchError> {
             .iter()
             .filter_map(|entry| {
                 let arr = entry.as_array()?;
-                let price = arr.get(0)?.as_str()?.parse::<f64>().ok()?;
+                let price = arr.first()?.as_str()?.parse::<f64>().ok()?;
                 let size = arr.get(1)?.as_str()?.parse::<f64>().ok()?;
                 Some((price, size))
             })
