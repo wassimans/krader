@@ -1,9 +1,7 @@
 use std::time::Duration;
 
 use iced::{
-    Element, Length, Renderer, Subscription, Task, Theme, application,
-    time::every,
-    widget::{column, container, horizontal_space, responsive, scrollable, text},
+    application, time::every, widget::{column, container, horizontal_space, responsive, scrollable, text}, Color, Element, Length, Renderer, Subscription, Task, Theme
 };
 
 use iced_table::table;
@@ -157,8 +155,21 @@ impl Krader {
 
             table.into()
         });
+        let time_status = iced::widget::Row::new()
+            .height(24)
+            .padding(5)
+            .push(
+                text("Last update: ")
+                    .size(14)
+                    .color(Color::from_rgb(0.0, 1.0, 0.0)),
+            )
+            .push(
+                text(chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string())
+                    .size(14)
+                    .color(Color::from_rgb(0.0, 1.0, 0.0)),
+            );
 
-        let content = column![table,].spacing(6);
+        let content = column![table, time_status].spacing(6);
 
         container(container(content).width(Length::Fill).height(Length::Fill))
             .padding(20)
