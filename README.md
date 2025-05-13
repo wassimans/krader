@@ -61,9 +61,9 @@ krader/
 ## 📅 Experimental Roadmap
 
 1. **Phase 1**: Live Ticker panel: ✅  Done
-2. **Phase 2**: Watchlist: 🏗️ Building
-3. **Phase 3**: Chart Trading with draggable markers: 🕘 Todo
-4. **Phase 4**: Stitch panels into one window + theming: 🕘 Todo
+2. **Phase 2**: Watchlist: ✅  Done
+2. **Phase 3**: Themeing Watchlist: 🏗️ Building
+4. **Phase 4**: Settings view:  🕘 Todo
 5. **Phase 5**: Package builds for macOS/Win/Linux: 🕘 Todo
 
 ---
