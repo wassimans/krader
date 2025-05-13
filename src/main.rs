@@ -3,7 +3,7 @@ use std::time::Duration;
 use iced::{
     Element, Length, Renderer, Subscription, Task, Theme, application,
     time::every,
-    widget::{column, container, responsive, scrollable, text},
+    widget::{column, container, horizontal_space, responsive, scrollable, text},
 };
 
 use iced_table::table;
@@ -26,7 +26,6 @@ pub struct Krader {
     resize_columns_enabled: bool,
     footer_enabled: bool,
     min_width_enabled: bool,
-    theme: Theme,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +61,25 @@ impl Krader {
                     WatchlistColumn::new(ColumnKind::MarkPrice),
                     WatchlistColumn::new(ColumnKind::Vol24h),
                     WatchlistColumn::new(ColumnKind::VolumeQuote),
+                    WatchlistColumn::new(ColumnKind::Symbol),
+                    WatchlistColumn::new(ColumnKind::Last),
+                    WatchlistColumn::new(ColumnKind::LastTime),
+                    WatchlistColumn::new(ColumnKind::Tag),
+                    WatchlistColumn::new(ColumnKind::Bid),
+                    WatchlistColumn::new(ColumnKind::BidSize),
+                    WatchlistColumn::new(ColumnKind::Ask),
+                    WatchlistColumn::new(ColumnKind::AskSize),
+                    WatchlistColumn::new(ColumnKind::OpenInterest),
+                    WatchlistColumn::new(ColumnKind::Open24h),
+                    WatchlistColumn::new(ColumnKind::High24h),
+                    WatchlistColumn::new(ColumnKind::Low24h),
+                    WatchlistColumn::new(ColumnKind::LastSize),
+                    WatchlistColumn::new(ColumnKind::FundingRate),
+                    WatchlistColumn::new(ColumnKind::FundingRatePrediction),
+                    WatchlistColumn::new(ColumnKind::Suspended),
+                    WatchlistColumn::new(ColumnKind::IndexPrice),
+                    WatchlistColumn::new(ColumnKind::PostOnly),
+                    WatchlistColumn::new(ColumnKind::Change24h),
                 ],
                 watch_list: vec![],
                 header: scrollable::Id::unique(),
@@ -70,13 +88,10 @@ impl Krader {
                 resize_columns_enabled: true,
                 footer_enabled: true,
                 min_width_enabled: true,
-                theme: Theme::Light,
             },
             Task::perform(
-                async {
-                    fetch_data().await.map_err(|e| e.to_string())
-                },
-                Message::DataFetched
+                async { fetch_data().await.map_err(|e| e.to_string()) },
+                Message::DataFetched,
             ),
         )
     }
@@ -87,12 +102,10 @@ impl Krader {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::SyncHeader(offset) => {
-                return Task::batch(vec![
-                    scrollable::scroll_to(self.header.clone(), offset),
-                    scrollable::scroll_to(self.footer.clone(), offset),
-                ]);
-            }
+            Message::SyncHeader(offset) => Task::batch(vec![
+                scrollable::scroll_to(self.header.clone(), offset),
+                scrollable::scroll_to(self.footer.clone(), offset),
+            ]),
             Message::Resizing(index, offset) => {
                 if let Some(column) = self.columns.get_mut(index) {
                     column.resize_offset = Some(offset);
@@ -108,10 +121,8 @@ impl Krader {
                 Task::none()
             }
             Message::FetchData => Task::perform(
-                async {
-                    fetch_data().await.map_err(|e| e.to_string())
-                },
-                Message::DataFetched
+                async { fetch_data().await.map_err(|e| e.to_string()) },
+                Message::DataFetched,
             ),
             Message::DataFetched(Ok(watch_list)) => {
                 self.watch_list = watch_list;
@@ -168,7 +179,7 @@ impl Krader {
 }
 
 async fn fetch_data() -> Result<Vec<WatchItem>, FetchError> {
-    let url = format!("https://futures.kraken.com/derivatives/api/v3/tickers");
+    let url = "https://futures.kraken.com/derivatives/api/v3/tickers".to_string();
     let resp: TickersResponse = reqwest::get(url).await?.json().await?;
 
     Ok(resp.tickers)
@@ -178,24 +189,40 @@ pub(crate) struct WatchlistColumn {
     kind: ColumnKind,
     width: f32,
     resize_offset: Option<f32>,
-    enabled: bool,
 }
 
 impl WatchlistColumn {
     fn new(kind: ColumnKind) -> Self {
         let width = match kind {
-            ColumnKind::Pair => 155.0,
-            ColumnKind::MarkPrice => 155.0,
+            ColumnKind::Pair => 100.0,
+            ColumnKind::MarkPrice => 100.0,
             ColumnKind::Vol24h => 100.0,
             ColumnKind::VolumeQuote => 100.0,
-            _ => 50.0,
+            ColumnKind::Symbol => 100.0,
+            ColumnKind::Last => 100.0,
+            ColumnKind::LastTime => 100.0,
+            ColumnKind::Tag => 100.0,
+            ColumnKind::Bid => 100.0,
+            ColumnKind::BidSize => 100.0,
+            ColumnKind::Ask => 100.0,
+            ColumnKind::AskSize => 100.0,
+            ColumnKind::OpenInterest => 100.0,
+            ColumnKind::Open24h => 100.0,
+            ColumnKind::High24h => 100.0,
+            ColumnKind::Low24h => 100.0,
+            ColumnKind::LastSize => 100.0,
+            ColumnKind::FundingRate => 100.0,
+            ColumnKind::FundingRatePrediction => 100.0,
+            ColumnKind::Suspended => 100.0,
+            ColumnKind::IndexPrice => 100.0,
+            ColumnKind::PostOnly => 100.0,
+            ColumnKind::Change24h => 100.0,
         };
 
         Self {
             kind,
             width,
             resize_offset: None,
-            enabled: true,
         }
     }
 }
@@ -295,49 +322,84 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for WatchlistColumn {
     fn cell(
         &'a self,
         _col_index: usize,
-        row_index: usize,
+        _row_index: usize,
         row: &'a WatchItem,
     ) -> Element<'a, Message> {
         let content: Element<_> = match self.kind {
-            ColumnKind::Symbol => text(row.symbol.clone().unwrap_or("--".to_string())).into(),
+            ColumnKind::Symbol => text(row.symbol.clone().unwrap_or("N/A".to_string())).into(),
             ColumnKind::Last => text(row.last.unwrap_or_default().to_string()).into(),
-            ColumnKind::LastTime => text(row.last_time.clone().unwrap_or("--".to_string())).into(),
-            ColumnKind::Tag => text(row.tag.clone().clone().unwrap_or("--".to_string())).into(),
-            ColumnKind::Pair => text(row.pair.clone().unwrap_or("--".to_string())).into(),
-            ColumnKind::MarkPrice => text(row.mark_price.unwrap_or_default().to_string()).into(),
-            ColumnKind::Bid => text(row.bid.unwrap_or_default().to_string()).into(),
-            ColumnKind::BidSize => text(row.bid_size.unwrap_or_default().to_string()).into(),
-            ColumnKind::Ask => text(row.ask.unwrap_or_default().to_string()).into(),
-            ColumnKind::AskSize => text(row.ask_size.unwrap_or_default().to_string()).into(),
-            ColumnKind::Vol24h => text(row.vol24h.unwrap_or_default().to_string()).into(),
+            ColumnKind::LastTime => text(row.last_time.clone().unwrap_or("N/A".to_string())).into(),
+            ColumnKind::Tag => text(row.tag.clone().clone().unwrap_or("N/A".to_string())).into(),
+            ColumnKind::Pair => text(row.pair.clone().unwrap_or("N/A".to_string())).into(),
+            ColumnKind::MarkPrice => text(
+                row.mark_price
+                    .map_or("N/A".to_string(), |v| format!("{}", v)),
+            )
+            .into(),
+            ColumnKind::Bid => text(row.bid.map_or("N/A".to_string(), |v| format!("{}", v))).into(),
+            ColumnKind::BidSize => {
+                text(row.bid_size.map_or("N/A".to_string(), |v| format!("{}", v))).into()
+            }
+            ColumnKind::Ask => text(row.ask.map_or("N/A".to_string(), |v| format!("{}", v))).into(),
+            ColumnKind::AskSize => {
+                text(row.ask_size.map_or("N/A".to_string(), |v| format!("{}", v))).into()
+            }
+            ColumnKind::Vol24h => {
+                text(row.vol24h.map_or("N/A".to_string(), |v| format!("{}", v))).into()
+            }
             ColumnKind::VolumeQuote => {
                 text(row.volume_quote.unwrap_or_default().to_string()).into()
             }
             ColumnKind::OpenInterest => {
                 text(row.open_interest.unwrap_or_default().to_string()).into()
             }
-            ColumnKind::Open24h => text(row.open24h.unwrap_or_default().to_string()).into(),
-            ColumnKind::High24h => text(row.high24h.unwrap_or_default().to_string()).into(),
-            ColumnKind::Low24h => text(row.low24h.unwrap_or_default().to_string()).into(),
-            ColumnKind::LastSize => text(row.last_size.unwrap_or_default().to_string()).into(),
+            ColumnKind::Open24h => {
+                text(row.open24h.map_or("N/A".to_string(), |v| format!("{}", v))).into()
+            }
+            ColumnKind::High24h => {
+                text(row.high24h.map_or("N/A".to_string(), |v| format!("{}", v))).into()
+            }
+            ColumnKind::Low24h => {
+                text(row.low24h.map_or("N/A".to_string(), |v| format!("{}", v))).into()
+            }
+            ColumnKind::LastSize => text(
+                row.last_size
+                    .map_or("N/A".to_string(), |v| format!("{}", v)),
+            )
+            .into(),
             ColumnKind::FundingRate => {
                 text(row.funding_rate.unwrap_or_default().to_string()).into()
             }
             ColumnKind::FundingRatePrediction => {
                 text(row.funding_rate_prediction.unwrap_or_default().to_string()).into()
             }
-            ColumnKind::Suspended => text(row.suspended.unwrap_or_default().to_string()).into(),
-            ColumnKind::IndexPrice => text(row.index_price.unwrap_or_default().to_string()).into(),
-            ColumnKind::PostOnly => text(row.post_only.unwrap_or_default().to_string()).into(),
-            ColumnKind::Change24h => text(row.change24h.unwrap_or_default().to_string()).into(),
+            ColumnKind::Suspended => text(
+                row.suspended
+                    .map_or("N/A".to_string(), |v| format!("{}", v)),
+            )
+            .into(),
+            ColumnKind::IndexPrice => text(
+                row.index_price
+                    .map_or("N/A".to_string(), |v| format!("{}", v)),
+            )
+            .into(),
+            ColumnKind::PostOnly => text(
+                row.post_only
+                    .map_or("N/A".to_string(), |v| format!("{}", v)),
+            )
+            .into(),
+            ColumnKind::Change24h => text(
+                row.change24h
+                    .map_or("N/A".to_string(), |v| format!("{}", v)),
+            )
+            .into(),
         };
 
         container(content).width(Length::Fill).center_y(32).into()
     }
 
-    fn footer(&'a self, _col_index: usize, rows: &'a [Self::Row]) -> Option<Element<'a, Message>> {
-        let content = Element::from(text("Footer text".to_string()));
-        Some(container(content).center_y(24).into())
+    fn footer(&'a self, _col_index: usize, _rows: &'a [Self::Row]) -> Option<Element<'a, Message>> {
+        Some(horizontal_space().into())
     }
 
     fn width(&self) -> f32 {
