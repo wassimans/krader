@@ -227,6 +227,7 @@ enum ColumnKind {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 struct WatchItem {
     symbol: Option<String>,
     last: Option<f64>,
@@ -335,7 +336,7 @@ impl<'a> table::Column<'a, Message, Theme, Renderer> for WatchlistColumn {
     }
 
     fn footer(&'a self, _col_index: usize, rows: &'a [Self::Row]) -> Option<Element<'a, Message>> {
-        let content = Element::from(text(format!("Footer text")));
+        let content = Element::from(text("Footer text".to_string()));
         Some(container(content).center_y(24).into())
     }
 
