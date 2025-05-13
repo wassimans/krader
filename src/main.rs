@@ -1,9 +1,13 @@
 use std::time::Duration;
 
-use futures::future;
 use iced::{
-    application, time::every, widget::{column, row, scrollable, text, Column, Row}, Color, Element, Length, Subscription, Task, Theme
+    Element, Length, Renderer, Subscription, Task, Theme, application,
+    time::every,
+    widget::{column, container, responsive, scrollable, text},
 };
+
+use iced_table::table;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 fn main() -> iced::Result {
@@ -13,33 +17,25 @@ fn main() -> iced::Result {
         .run_with(Krader::new)
 }
 
-#[derive(Debug)]
-struct OrderBook {
-    pair: String,
-    bids: Vec<(f64, f64)>, // (price, size)
-    asks: Vec<(f64, f64)>,
-    last_error: Option<String>,
-}
-
-#[derive(Debug)]
-struct WatchItem {
-    symbol: String,
-    price: Option<f64>,
-    last_update: Option<String>,
-    error: Option<String>,
-}
-
 pub struct Krader {
+    columns: Vec<WatchlistColumn>,
     watch_list: Vec<WatchItem>,
-    order_book: OrderBook,
+    header: scrollable::Id,
+    body: scrollable::Id,
+    footer: scrollable::Id,
+    resize_columns_enabled: bool,
+    footer_enabled: bool,
+    min_width_enabled: bool,
+    theme: Theme,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Message {
-    FetchPrices,
-    PricesFetched(Result<Vec<(String, f64)>, FetchError>),
-    FetchOrderBook,
-    OrderBookFetched(Result<OrderBook, FetchError>),
+    SyncHeader(scrollable::AbsoluteOffset),
+    Resizing(usize, f32),
+    Resized,
+    FetchData,
+    DataFetched(Result<Vec<WatchItem>, String>),
 }
 
 #[derive(Debug, Error)]
@@ -59,28 +55,29 @@ pub enum FetchError {
 
 impl Krader {
     fn new() -> (Self, Task<Message>) {
-        let symbols = ["XBTUSD", "ETHUSD", "DOTUSD"];
-        let watch_list = symbols
-            .iter()
-            .map(|sym| WatchItem {
-                symbol: sym.to_string(),
-                price: None,
-                last_update: None,
-                error: None,
-            })
-            .collect();
-        let order_book = OrderBook {
-            pair: "XBTUSD".into(),
-            bids: vec![],
-            asks: vec![],
-            last_error: None,
-        };
         (
-            Krader {
-                watch_list,
-                order_book,
+            Self {
+                columns: vec![
+                    WatchlistColumn::new(ColumnKind::Pair),
+                    WatchlistColumn::new(ColumnKind::MarkPrice),
+                    WatchlistColumn::new(ColumnKind::Vol24h),
+                    WatchlistColumn::new(ColumnKind::VolumeQuote),
+                ],
+                watch_list: vec![],
+                header: scrollable::Id::unique(),
+                body: scrollable::Id::unique(),
+                footer: scrollable::Id::unique(),
+                resize_columns_enabled: true,
+                footer_enabled: true,
+                min_width_enabled: true,
+                theme: Theme::Light,
             },
-            Task::perform(fetch_all_price(), Message::PricesFetched),
+            Task::perform(
+                async {
+                    fetch_data().await.map_err(|e| e.to_string())
+                },
+                Message::DataFetched
+            ),
         )
     }
 
@@ -90,130 +87,79 @@ impl Krader {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::FetchPrices => Task::perform(fetch_all_price(), Message::PricesFetched),
-            Message::PricesFetched(Ok(prices)) => {
-                self.watch_list = prices
-                    .iter()
-                    .map(|watch_item| WatchItem {
-                        symbol: watch_item.0.clone(),
-                        price: Some(watch_item.1),
-                        last_update: Some(chrono::Utc::now().to_rfc3339()),
-                        error: None,
-                    })
-                    .collect();
-                Task::none()
+            Message::SyncHeader(offset) => {
+                return Task::batch(vec![
+                    scrollable::scroll_to(self.header.clone(), offset),
+                    scrollable::scroll_to(self.footer.clone(), offset),
+                ]);
             }
-
-            Message::PricesFetched(Err(err)) => {
-                // In case of a global error, store it in each WatchItem
-                for item in &mut self.watch_list {
-                    item.error = Some(err.to_string());
+            Message::Resizing(index, offset) => {
+                if let Some(column) = self.columns.get_mut(index) {
+                    column.resize_offset = Some(offset);
                 }
                 Task::none()
             }
-            Message::FetchOrderBook => {
-                let pair = self.order_book.pair.clone();
-                Task::perform(fetch_order_book(pair), Message::OrderBookFetched)
-            }
-
-            Message::OrderBookFetched(Ok(book)) => {
-                self.order_book = book;
+            Message::Resized => {
+                self.columns.iter_mut().for_each(|column| {
+                    if let Some(offset) = column.resize_offset.take() {
+                        column.width += offset;
+                    }
+                });
                 Task::none()
             }
-            Message::OrderBookFetched(Err(err)) => {
-                self.order_book.last_error = Some(err.to_string());
+            Message::FetchData => Task::perform(
+                async {
+                    fetch_data().await.map_err(|e| e.to_string())
+                },
+                Message::DataFetched
+            ),
+            Message::DataFetched(Ok(watch_list)) => {
+                self.watch_list = watch_list;
+                Task::none()
+            }
+            Message::DataFetched(Err(e)) => {
+                eprintln!("{e}");
                 Task::none()
             }
         }
     }
 
     fn view(&self) -> Element<Message> {
-        // Left pane: watchlist
-        let rows = self.watch_list.iter().map(|item| {
-            row![
-                text(&item.symbol).size(24),
-                text(item.price.unwrap_or(0.0).to_string()).size(24),
-                text(item.last_update.clone().unwrap_or_default()).size(16)
-            ]
-            .spacing(20)
-            .into()
-        });
-        let watchlist_pane: scrollable::Scrollable<'_, Message> =
-            scrollable(column(rows).spacing(10)).width(Length::FillPortion(1));
-
-        // Right: numeric table
-        let rows = std::iter::once(
-            row![
-                text("Price").size(18),
-                text("Size").size(18),
-                text("Total").size(18),
-            ]
-            .spacing(20)
-            .into(), // ← convert Row → Element
-        )
-        .chain(self.order_book.bids.iter().map(|(price, size)| {
-            row![
-                text(format!("{:.2}", price)).size(16),
-                text(format!("{:.4}", size)).size(16),
-                text(format!("{:.2}", price * size)).size(16),
-            ]
-            .spacing(20)
-            .into() // ← must call .into() here as well
-        }))
-        .chain(self.order_book.asks.iter().map(|(price, size)| {
-            row![
-                text(format!("{:.2}", price)).size(16),
-                text(format!("{:.4}", size)).size(16),
-                text(format!("{:.2}", price * size)).size(16),
-            ]
-            .spacing(20)
-            .into() // ← and here
-        }));
-
-        let order_book_pane = scrollable(
-            column(rows) // now rows is IntoIterator<Item = Element<_,_,_>>
-                .spacing(2),
-        )
-        .width(Length::FillPortion(1));
-
-        // Menu bar
-        let menu_bar = Row::new()
-            .height(30)
-            .padding(10)
-            .spacing(20)
-            .push(text("File").size(14).color(Color::from_rgb(0.0, 1.0, 0.0)))
-            .push(text("View").size(14).color(Color::from_rgb(0.0, 1.0, 0.0)))
-            .push(text("Help").size(14).color(Color::from_rgb(0.0, 1.0, 0.0)));
-
-        // Footer
-        let footer = Row::new()
-            .height(24)
-            .padding(5)
-            .push(text("Last sync: 12:34:56").size(14))
-            .push(
-                text(" | Connected")
-                    .size(14)
-                    .color(Color::from_rgb(0.0, 1.0, 0.0)),
+        let table = responsive(|size| {
+            let mut table = table(
+                self.header.clone(),
+                self.body.clone(),
+                &self.columns,
+                &self.watch_list,
+                Message::SyncHeader,
             );
 
-        Column::new()
-            .push(menu_bar)
-            .push(
-                // Compose them side-by-side
-                Row::new()
-                    .spacing(30)
-                    .push(watchlist_pane)
-                    .push(order_book_pane)
-            )
-            .push(footer)
+            if self.resize_columns_enabled {
+                table = table.on_column_resize(Message::Resizing, Message::Resized);
+            }
+            if self.footer_enabled {
+                table = table.footer(self.footer.clone());
+            }
+            if self.min_width_enabled {
+                table = table.min_width(size.width);
+            }
+
+            table.into()
+        });
+
+        let content = column![table,].spacing(6);
+
+        container(container(content).width(Length::Fill).height(Length::Fill))
+            .padding(20)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
             .into()
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let prices = every(Duration::from_secs(5)).map(|_| Message::FetchPrices);
-        let book = every(Duration::from_secs(5)).map(|_| Message::FetchOrderBook);
+        let prices = every(Duration::from_secs(5)).map(|_| Message::FetchData);
 
-        Subscription::batch(vec![prices, book])
+        Subscription::batch(vec![prices])
     }
 
     fn theme(&self) -> Theme {
@@ -221,64 +167,183 @@ impl Krader {
     }
 }
 
-async fn fetch_all_price() -> Result<Vec<(String, f64)>, FetchError> {
-    let symbols = vec!["XXBTZUSD", "XETHZUSD", "DOTUSD"];
-    let mut tasks = Vec::new();
-    for &s in &symbols {
-        let url = format!("https://api.kraken.com/0/public/Ticker?pair={}", s);
-        tasks.push(async move {
-            let resp: serde_json::Value = reqwest::get(url).await?.json().await?;
-            let price_str = resp["result"][s]["c"][0]
-                .as_str()
-                .ok_or(FetchError::MissingField)?;
+async fn fetch_data() -> Result<Vec<WatchItem>, FetchError> {
+    let url = format!("https://futures.kraken.com/derivatives/api/v3/tickers");
+    let resp: TickersResponse = reqwest::get(url).await?.json().await?;
 
-            let price = price_str.parse::<f64>()?;
-            Ok((s.into(), price))
-        });
-    }
-
-    // Run all fetch tasks concurrently
-    let results: Vec<Result<(String, f64), FetchError>> = future::join_all(tasks).await;
-
-    // Partition successes and errors
-    let mut prices = Vec::new();
-    for res in results {
-        prices.push(res?);
-    }
-
-    Ok(prices)
+    Ok(resp.tickers)
 }
 
-async fn fetch_order_book(pair: String) -> Result<OrderBook, FetchError> {
-    let url = format!(
-        "https://api.kraken.com/0/public/Depth?pair={}&count=10",
-        pair
-    );
+pub(crate) struct WatchlistColumn {
+    kind: ColumnKind,
+    width: f32,
+    resize_offset: Option<f32>,
+    enabled: bool,
+}
 
-    let resp: serde_json::Value = reqwest::get(&url).await?.json().await?;
-    let data = &resp["result"][&pair];
+impl WatchlistColumn {
+    fn new(kind: ColumnKind) -> Self {
+        let width = match kind {
+            ColumnKind::Pair => 155.0,
+            ColumnKind::MarkPrice => 155.0,
+            ColumnKind::Vol24h => 100.0,
+            ColumnKind::VolumeQuote => 100.0,
+            _ => 50.0,
+        };
 
-    // Parse bids and asks arrays
-    let parse_side = |side: &serde_json::Value| {
-        side.as_array()
-            .unwrap_or(&vec![])
-            .iter()
-            .filter_map(|entry| {
-                let arr = entry.as_array()?;
-                let price = arr.first()?.as_str()?.parse::<f64>().ok()?;
-                let size = arr.get(1)?.as_str()?.parse::<f64>().ok()?;
-                Some((price, size))
-            })
-            .collect::<Vec<_>>()
-    };
+        Self {
+            kind,
+            width,
+            resize_offset: None,
+            enabled: true,
+        }
+    }
+}
 
-    let bids = parse_side(&data["bids"]);
-    let asks = parse_side(&data["asks"]);
+enum ColumnKind {
+    Symbol,
+    Last,
+    LastTime,
+    Tag,
+    Pair,
+    MarkPrice,
+    Bid,
+    BidSize,
+    Ask,
+    AskSize,
+    Vol24h,
+    VolumeQuote,
+    OpenInterest,
+    Open24h,
+    High24h,
+    Low24h,
+    LastSize,
+    FundingRate,
+    FundingRatePrediction,
+    Suspended,
+    IndexPrice,
+    PostOnly,
+    Change24h,
+}
 
-    Ok(OrderBook {
-        pair,
-        bids,
-        asks,
-        last_error: None,
-    })
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct WatchItem {
+    symbol: Option<String>,
+    last: Option<f64>,
+    last_time: Option<String>,
+    tag: Option<String>,
+    pair: Option<String>,
+    mark_price: Option<f64>,
+    bid: Option<f64>,
+    bid_size: Option<f64>,
+    ask: Option<f64>,
+    ask_size: Option<f64>,
+    vol24h: Option<f64>,
+    volume_quote: Option<f64>,
+    open_interest: Option<f64>,
+    open24h: Option<f64>,
+    high24h: Option<f64>,
+    low24h: Option<f64>,
+    last_size: Option<f64>,
+    funding_rate: Option<f64>,
+    funding_rate_prediction: Option<f64>,
+    suspended: Option<bool>,
+    index_price: Option<f64>,
+    post_only: Option<bool>,
+    change24h: Option<f64>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct TickersResponse {
+    tickers: Vec<WatchItem>,
+}
+
+impl<'a> table::Column<'a, Message, Theme, Renderer> for WatchlistColumn {
+    type Row = WatchItem;
+
+    fn header(&'a self, _col_index: usize) -> Element<'a, Message> {
+        let content = match self.kind {
+            ColumnKind::Pair => "MARKET",
+            ColumnKind::MarkPrice => "PRICE",
+            ColumnKind::Vol24h => "24H%",
+            ColumnKind::VolumeQuote => "V.QUOTE",
+            ColumnKind::Symbol => "SYMBOL",
+            ColumnKind::Last => "LAST",
+            ColumnKind::LastTime => "L.TIME",
+            ColumnKind::Tag => "TAG",
+            ColumnKind::Bid => "BID",
+            ColumnKind::BidSize => "B.SIZE",
+            ColumnKind::Ask => "ASK",
+            ColumnKind::AskSize => "A.SIZE",
+            ColumnKind::OpenInterest => "O.INTEREST",
+            ColumnKind::Open24h => "O.24H",
+            ColumnKind::High24h => "H.24H",
+            ColumnKind::Low24h => "L.24H",
+            ColumnKind::LastSize => "L.SIZE",
+            ColumnKind::FundingRate => "F.RATE",
+            ColumnKind::FundingRatePrediction => "F.R.PREDICTION",
+            ColumnKind::Suspended => "SUSPENDED",
+            ColumnKind::IndexPrice => "I.PRICE",
+            ColumnKind::PostOnly => "P.ONLY",
+            ColumnKind::Change24h => "C.24H",
+        };
+
+        container(text(content)).center_y(24).into()
+    }
+
+    fn cell(
+        &'a self,
+        _col_index: usize,
+        row_index: usize,
+        row: &'a WatchItem,
+    ) -> Element<'a, Message> {
+        let content: Element<_> = match self.kind {
+            ColumnKind::Symbol => text(row.symbol.clone().unwrap_or("--".to_string())).into(),
+            ColumnKind::Last => text(row.last.unwrap_or_default().to_string()).into(),
+            ColumnKind::LastTime => text(row.last_time.clone().unwrap_or("--".to_string())).into(),
+            ColumnKind::Tag => text(row.tag.clone().clone().unwrap_or("--".to_string())).into(),
+            ColumnKind::Pair => text(row.pair.clone().unwrap_or("--".to_string())).into(),
+            ColumnKind::MarkPrice => text(row.mark_price.unwrap_or_default().to_string()).into(),
+            ColumnKind::Bid => text(row.bid.unwrap_or_default().to_string()).into(),
+            ColumnKind::BidSize => text(row.bid_size.unwrap_or_default().to_string()).into(),
+            ColumnKind::Ask => text(row.ask.unwrap_or_default().to_string()).into(),
+            ColumnKind::AskSize => text(row.ask_size.unwrap_or_default().to_string()).into(),
+            ColumnKind::Vol24h => text(row.vol24h.unwrap_or_default().to_string()).into(),
+            ColumnKind::VolumeQuote => {
+                text(row.volume_quote.unwrap_or_default().to_string()).into()
+            }
+            ColumnKind::OpenInterest => {
+                text(row.open_interest.unwrap_or_default().to_string()).into()
+            }
+            ColumnKind::Open24h => text(row.open24h.unwrap_or_default().to_string()).into(),
+            ColumnKind::High24h => text(row.high24h.unwrap_or_default().to_string()).into(),
+            ColumnKind::Low24h => text(row.low24h.unwrap_or_default().to_string()).into(),
+            ColumnKind::LastSize => text(row.last_size.unwrap_or_default().to_string()).into(),
+            ColumnKind::FundingRate => {
+                text(row.funding_rate.unwrap_or_default().to_string()).into()
+            }
+            ColumnKind::FundingRatePrediction => {
+                text(row.funding_rate_prediction.unwrap_or_default().to_string()).into()
+            }
+            ColumnKind::Suspended => text(row.suspended.unwrap_or_default().to_string()).into(),
+            ColumnKind::IndexPrice => text(row.index_price.unwrap_or_default().to_string()).into(),
+            ColumnKind::PostOnly => text(row.post_only.unwrap_or_default().to_string()).into(),
+            ColumnKind::Change24h => text(row.change24h.unwrap_or_default().to_string()).into(),
+        };
+
+        container(content).width(Length::Fill).center_y(32).into()
+    }
+
+    fn footer(&'a self, _col_index: usize, rows: &'a [Self::Row]) -> Option<Element<'a, Message>> {
+        let content = Element::from(text(format!("Footer text")));
+        Some(container(content).center_y(24).into())
+    }
+
+    fn width(&self) -> f32 {
+        self.width
+    }
+
+    fn resize_offset(&self) -> Option<f32> {
+        self.resize_offset
+    }
 }
