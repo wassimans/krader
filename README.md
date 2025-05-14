@@ -1,6 +1,8 @@
 # 🦑 Krader - Experimental Iced Kraken Trading Dashboard
 
-*Woof! This is a playground to learn Rust, Iced, and real-time trading UIs.*
+<p align="center">
+  <img src="assets/screenshot.png" alt="Krader - Experimental Iced Kraken Trading Dashboard" width="600"/>
+</p>
 
 **Krader** is a small, experimental desktop application built to showcase how to use **Rust** and **Iced** (v0.13.1) to interact with the Kraken API. It’s not production software—think of it as a learning project or proof-of-concept for crafting real-time data-driven desktop UIs.
 
