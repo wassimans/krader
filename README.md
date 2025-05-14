@@ -10,18 +10,13 @@
 
 - **Iced Basics**: MVU architecture (Model, Message, update, view) and how to wire up an Iced app.
 - **Async in Rust**: Using Tokio and WebSocket streams for live market data.
-- **Custom Widgets**: Building heatmaps, sparklines, and draggable markers in Iced’s canvas.
-- **Local Caching**: Simple in-memory or disk-backed storage to avoid refetching every tick.
-- **Cross-Platform Packaging**: How to bundle your app on macOS, Windows, and Linux.
 
 ---
 
 ## 📦 Features (Proof-of-Concept)
 
 - **Live Ticker**: Stream real-time price updates for a watchlist of crypto pairs.
-- **Order Book**: Visual depth map and numeric bids/asks table.
-- **Chart Trading**: Place and modify mock orders directly on a candlestick chart.
-- **Kraken API**: Fetch public market data via WebSocket or REST endpoints.
+- **Kraken API**: Fetch public market data via REST endpoints.
 - **Dark Theme**: A simple dark-mode UI with neon-green/red accents.
 
 ---
@@ -30,30 +25,14 @@
 
 ### Prerequisites
 - **Rust** (1.70+)
-- **cargo** + **cargo-make** (optional)
+- **cargo**
 
 ### Installation & Run
 
 ```bash
 git clone https://github.com/wassimans/krader.git
 cd krader
-a # if using cargo-make
-cargo make setup # installs dependencies
 cargo run --release
-```
-
-
----
-
-## 🛠 Project Structure
-
-```
-krader/
-├─ src/                # Main Rust + Iced source
-├─ assets/             # Icons & UI assets
-├─ config/             # (Optional) config files for API keys or endpoints
-├─ docs/               # Guides, notes, and roadmap sketches
-└─ Makefile or ./xtask # Task automation (build, package, lint)
 ```
 
 ---
@@ -62,15 +41,6 @@ krader/
 
 1. **Phase 1**: Live Ticker panel: ✅  Done
 2. **Phase 2**: Watchlist: ✅  Done
-2. **Phase 3**: Themeing Watchlist: 🏗️ Building
-4. **Phase 4**: Settings view:  🕘 Todo
-5. **Phase 5**: Package builds for macOS/Win/Linux: 🕘 Todo
 
 ---
-
-## 🤝 Contributing & Learning
-
-- This repository is for learning purposes.
-- Copy code, break it, fix it, learn by doing.
-
 
